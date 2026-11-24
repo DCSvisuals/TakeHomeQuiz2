@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en" translate="no">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="format-detection" content="telephone=no">
+  <title>CST8808 Quiz 2 - iptables parser</title>
+  <style>
+    :root {
+      --ink: #1b2430;
+      --muted: #4a5668;
+      --line: #d5deea;
+      --paper: #f4f7fb;
+      --navy: #14315c;
+      --navy-2: #1c4278;
+      --drop: #8e1d2c;
+      --drop-bg: #fdecee;
+      --ok: #0d5c42;
+      --ok-bg: #e7f6ef;
+      --warn: #6b5314;
+      --warn-bg: #fff8e8;
+      --warn-line: #e6d39a;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html { color-scheme: light; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font: 16px/1.45 "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    }
+    body.dragging .wrap { outline: 3px dashed var(--navy); outline-offset: -12px; }
+    .wrap { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 64px; }
+    .kicker {
+      margin: 0;
+      color: var(--navy);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 4px 0 8px; font-size: 32px; line-height: 1.15; font-weight: 700; }
+    h2 { margin: 32px 0 8px; color: var(--navy); font-size: 22px; }
+    .intro, .section-note, footer { color: var(--muted); }
+    .intro { max-width: 46rem; margin: 0 0 18px; }
+    .section-note { margin: 0 0 12px; }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 16px;
+      align-items: center;
+      justify-content: space-between;
+      margin: 0 0 16px;
+      padding: 14px 16px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+    #status { margin: 8px 0 16px; font-weight: 600; }
+    .picker {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .picker span { color: var(--muted); font-size: 14px; font-weight: 700; }
+    select {
+      min-width: min(100%, 280px);
+      max-width: 420px;
+      padding: 8px 10px;
+      border: 1px solid var(--navy);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+      font-size: 15px;
+    }
+    select:disabled { opacity: 0.55; }
+    .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+    button {
+      -webkit-appearance: none;
+      appearance: none;
+      display: inline-block;
+      margin: 0;
+      padding: 8px 14px;
+      border: 0;
+      border-radius: 6px;
+      background: var(--navy);
+      color: #fff;
+      font: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      line-height: 1.2;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.55; cursor: default; }
+    button:focus, select:focus { outline: 2px solid #0b6bcb; outline-offset: 2px; }
+    .file-input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      border: 0;
+    }
+    .banner, .note {
+      margin: 0 0 14px;
+      padding: 10px 12px;
+      border-radius: 8px;
+    }
+    .banner { background: var(--drop-bg); color: var(--drop); }
+    .note { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-line); }
+    .table-wrap { overflow-x: auto; background: #fff; border-radius: 10px; }
+    table { width: 100%; border-collapse: collapse; background: #fff; }
+    th, td { padding: 10px 12px; border: 1px solid var(--line); vertical-align: top; text-align: left; }
+    .profiles { min-width: 980px; }
+    .profiles th {
+      background: var(--navy);
+      color: #fff;
+      border-color: var(--navy-2);
+      text-align: center;
+      font-weight: 700;
+    }
+    .profiles td { line-height: 1.45; }
+    .profiles td.ip { font-weight: 700; white-space: nowrap; }
+    .iocs { min-width: 720px; }
+    .iocs th, .lines th { background: var(--navy); color: #fff; border-color: var(--navy-2); font-weight: 700; }
+    .lines { min-width: 1180px; font-size: 14px; }
+    .lines td, .lines th { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .lines tbody tr:nth-child(even), .iocs tbody tr:nth-child(even) { background: #f4f7fb; }
+    .sub { margin-top: 4px; color: var(--muted); font-size: 12px; font-weight: 400; }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #eef2f6;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .pill.DROP { background: var(--drop-bg); color: var(--drop); }
+    .pill.ACCEPT, .pill.ALLOW { background: var(--ok-bg); color: var(--ok); }
+    .pill.REJECT { background: #fff4e5; color: #8a4b08; }
+    #findings { margin: 0; padding-left: 1.3rem; }
+    #findings li { margin: 0 0 10px; }
+    #handout { margin-top: 10px; }
+    footer { margin-top: 28px; font-size: 14px; }
+    @media print {
+      body { background: #fff; }
+      .buttons { display: none !important; }
+      .wrap { width: auto; }
+      .table-wrap { overflow: visible; }
+      .profiles, .lines, .iocs { min-width: 0; }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p class="kicker">CST8808 Quiz 2</p>
+    <h1>iptables log parser</h1>
+    <p class="intro">
+      This page reads a netfilter kernel log, parses every line, and groups the lines by source IP.
+      Each group is labeled from the destination ports and the gaps between timestamps.
+      Upload a log, then choose which one to view in the list. The sample is already listed.
+    </p>
+    <noscript>
+      <p class="banner">This page needs JavaScript. Edge, Chrome, Safari, and Firefox leave it on by default.</p>
+    </noscript>
+    <div class="toolbar">
+      <label class="picker" for="logs">
+        <span>Log</span>
+        <select id="logs">
+          <option>Loading logs...</option>
+        </select>
+      </label>
+      <div class="buttons">
+        <button type="button" id="upload">Upload a log</button>
+        <input id="file" class="file-input" type="file" multiple accept=".log,.txt,text/plain">
+      </div>
+    </div>
+    <p id="status" role="status">Loading the sample log...</p>
+    <p id="error" class="banner" role="alert" hidden></p>
+    <p id="skipped" class="note" hidden></p>
+    <p id="empty" class="note" hidden>No iptables lines were found in this file.</p>
+    <div id="results" hidden>
+      <h2>Attack profiles</h2>
+      <p class="section-note">One row per source address. These are the five columns from the quiz handout.</p>
+      <div class="table-wrap">
+        <table class="profiles">
+          <thead>
+            <tr>
+              <th scope="col">Attacker IP Address</th>
+              <th scope="col">Target Port(s) (DPT)</th>
+              <th scope="col">Firewall Status (Action)</th>
+              <th scope="col">Traffic Sequence &amp; Timing Metrics</th>
+              <th scope="col">Diagnosed Attack Intent / Method</th>
+            </tr>
+          </thead>
+          <tbody id="profile-rows"></tbody>
+        </table>
+      </div>
+      <p id="handout" class="section-note" hidden>The 203.0.113.42 row is the same case as the example in the quiz handout. The 1-2 second gaps were measured from the log.</p>
+      <p class="section-note">Action is read from the log prefix. IPTABLES_SCAN_DROP is DROP, IPTABLES_ACCEPT is ACCEPT, and IPTABLES_HTTP_ALLOW is ALLOW.</p>
+
+      <h2>Indicators of compromise</h2>
+      <p class="section-note">Addresses, ports, rules, and packet traits taken from the parsed lines.</p>
+      <div class="table-wrap">
+        <table class="iocs">
+          <thead>
+            <tr>
+              <th scope="col">Type</th>
+              <th scope="col">Indicator</th>
+              <th scope="col">Why it matters</th>
+            </tr>
+          </thead>
+          <tbody id="ioc-rows"></tbody>
+        </table>
+      </div>
+
+      <h2>What the indicators mean</h2>
+      <ol id="findings"></ol>
+
+      <h2>Normalized log</h2>
+      <p class="section-note">One row per parsed line. Line numbers match the file. SRC, DST, SPT, DPT, TTL, LEN, WINDOW, ID, and the TCP flags are the fields pulled out of each line.</p>
+      <div class="table-wrap">
+        <table class="lines">
+          <thead>
+            <tr>
+              <th scope="col">Line</th>
+              <th scope="col">Time</th>
+              <th scope="col">Rule prefix</th>
+              <th scope="col">Action</th>
+              <th scope="col">SRC</th>
+              <th scope="col">DST</th>
+              <th scope="col">Proto</th>
+              <th scope="col">SPT</th>
+              <th scope="col">DPT</th>
+              <th scope="col">Flags</th>
+              <th scope="col">TTL</th>
+              <th scope="col">LEN</th>
+              <th scope="col">Window</th>
+              <th scope="col">IP ID</th>
+            </tr>
+          </thead>
+          <tbody id="line-rows"></tbody>
+        </table>
+      </div>
+    </div>
+    <footer>
+      This page runs only on this computer. Edge, Chrome, Safari, and Firefox can open it.
+      Nothing is sent off this machine. Upload a log, or drop one or more logs onto the page, then pick one from the Log list.
+    </footer>
+  </div>
+  <script>
+    var statusEl = document.getElementById("status");
+    var errorEl = document.getElementById("error");
+    var skippedEl = document.getElementById("skipped");
+    var emptyEl = document.getElementById("empty");
+    var resultsEl = document.getElementById("results");
+    var handoutEl = document.getElementById("handout");
+    var fileInput = document.getElementById("file");
+    var uploadButton = document.getElementById("upload");
+    var logSelect = document.getElementById("logs");
+    var dragDepth = 0;
+    var busy = false;
+    var filling = false;
+    var library = [];
+    var activeId = "";
+    var nextId = 1;
+
+    function el(tag, className, text) {
+      var node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined && text !== null) node.textContent = text;
+      return node;
+    }
+
+    function clear(node) {
+      while (node.firstChild) node.removeChild(node.firstChild);
+    }
+
+    function cellText(value) {
+      if (value === null || value === undefined || value === "") return "-";
+      return String(value);
+    }
+
+    function setBusy(isBusy) {
+      busy = isBusy;
+      uploadButton.disabled = isBusy;
+      fileInput.disabled = isBusy;
+      logSelect.disabled = isBusy || library.length === 0;
+    }
+
+    function showFail(err) {
+      errorEl.hidden = false;
+      errorEl.textContent = err && err.message ? err.message : "The parser could not be reached. Start the program, then open http://127.0.0.1:8808";
+      if (resultsEl.hidden) statusEl.textContent = "The report did not load.";
+    }
+
+    function readJson(response) {
+      return response.json().then(function (data) {
+        if (!response.ok || (data && data.error)) {
+          var message = data && data.error ? data.error : "The parser returned an error.";
+          throw new Error(message);
+        }
+        return data;
+      });
+    }
+
+    function addAction(parent, action) {
+      var parts = String(action || "-").split(" / ");
+      for (var i = 0; i < parts.length; i++) {
+        parent.appendChild(el("span", "pill " + parts[i], parts[i]));
+        if (i < parts.length - 1) parent.appendChild(document.createTextNode(" "));
+      }
+    }
+
+    function render(data) {
+      errorEl.hidden = true;
+      var skipped = data.skipped || [];
+      var profiles = data.profiles || [];
+      var indicators = data.indicators || [];
+      var findings = data.findings || [];
+      var events = data.events || [];
+      var summary = data.summary || {};
+      var bits = [data.source_name || "log", (data.parsed_count || 0) + " events parsed"];
+      if (skipped.length) bits.push(skipped.length + " line skipped");
+      if (summary.host) bits.push(summary.host);
+      if (summary.victim) bits.push("victim " + summary.victim);
+      if (summary.iface) bits.push(summary.iface);
+      if (summary.first) bits.push(summary.first + " to " + summary.last);
+      statusEl.textContent = bits.join("  ·  ");
+
+      if (skipped.length) {
+        var parts = [];
+        for (var s = 0; s < skipped.length && s < 6; s++) {
+          var snippet = skipped[s].text || "";
+          if (snippet.length > 180) snippet = snippet.slice(0, 180) + "...";
+          while (snippet.charAt(snippet.length - 1) === ".") snippet = snippet.slice(0, -1);
+          parts.push("line " + skipped[s].line_no + ": " + snippet);
+        }
+        var lineWord = skipped.length === 1 ? "line" : "lines";
+        var verb = skipped.length === 1 ? "is" : "are";
+        skippedEl.hidden = false;
+        skippedEl.textContent = "Skipped " + skipped.length + " " + lineWord + " that " + verb + " not an iptables event: " + parts.join("; ") + ".";
+      } else {
+        skippedEl.hidden = true;
+        skippedEl.textContent = "";
+      }
+
+      var profileBody = document.getElementById("profile-rows");
+      clear(profileBody);
+      var handout = false;
+      for (var p = 0; p < profiles.length; p++) {
+        var profile = profiles[p];
+        if (profile.src === "203.0.113.42" && profile.kind === "ssh_brute") handout = true;
+        var row = document.createElement("tr");
+        row.appendChild(el("td", "ip", cellText(profile.src)));
+        row.appendChild(el("td", null, cellText(profile.ports_label)));
+        var actionCell = el("td");
+        addAction(actionCell, profile.action);
+        actionCell.appendChild(el("div", "sub", cellText(profile.prefix_label)));
+        row.appendChild(actionCell);
+        row.appendChild(el("td", null, cellText(profile.timing)));
+        row.appendChild(el("td", null, cellText(profile.intent)));
+        profileBody.appendChild(row);
+      }
+      handoutEl.hidden = !handout;
+
+      var iocBody = document.getElementById("ioc-rows");
+      clear(iocBody);
+      for (var i = 0; i < indicators.length; i++) {
+        var item = indicators[i];
+        var iocRow = document.createElement("tr");
+        iocRow.appendChild(el("td", null, cellText(item.type)));
+        iocRow.appendChild(el("td", null, cellText(item.value)));
+        iocRow.appendChild(el("td", null, cellText(item.detail)));
+        iocBody.appendChild(iocRow);
+      }
+
+      var findingList = document.getElementById("findings");
+      clear(findingList);
+      for (var f = 0; f < findings.length; f++) {
+        findingList.appendChild(el("li", null, findings[f]));
+      }
+
+      var lineBody = document.getElementById("line-rows");
+      clear(lineBody);
+      for (var n = 0; n < events.length; n++) {
+        var event = events[n];
+        var line = document.createElement("tr");
+        var values = [
+          event.line_no, event.time, event.prefix, event.action, event.src, event.dst,
+          event.proto, event.spt, event.dpt_label, event.flags_label, event.ttl,
+          event.length, event.window, event.ip_id
+        ];
+        for (var c = 0; c < values.length; c++) {
+          line.appendChild(el("td", null, cellText(values[c])));
+        }
+        lineBody.appendChild(line);
+      }
+
+      var hasEvents = (data.parsed_count || 0) > 0;
+      resultsEl.hidden = !hasEvents;
+      emptyEl.hidden = hasEvents;
+    }
+
+    function findEntry(id) {
+      for (var i = 0; i < library.length; i++) {
+        if (library[i].id === id) return library[i];
+      }
+      return null;
+    }
+
+    function optionLabel(entry) {
+      if (entry.source === "upload") return entry.name + " (uploaded)";
+      if (entry.name === "iptables.log") return "iptables.log (sample)";
+      return entry.name;
+    }
+
+    function fillPicker() {
+      filling = true;
+      clear(logSelect);
+      for (var i = 0; i < library.length; i++) {
+        var option = el("option", null, optionLabel(library[i]));
+        option.value = library[i].id;
+        logSelect.appendChild(option);
+      }
+      if (!library.length) {
+        var empty = el("option", null, "No logs yet");
+        empty.value = "";
+        logSelect.appendChild(empty);
+      }
+      if (activeId) logSelect.value = activeId;
+      filling = false;
+      logSelect.disabled = busy || library.length === 0;
+    }
+
+    function rememberUpload(name, data) {
+      for (var i = 0; i < library.length; i++) {
+        if (library[i].source === "upload" && library[i].name === name) {
+          library[i].report = data;
+          fillPicker();
+          return library[i].id;
+        }
+      }
+      var entry = {id: "u" + (nextId++), name: name, source: "upload", report: data};
+      library.push(entry);
+      fillPicker();
+      return entry.id;
+    }
+
+    function showLog(id) {
+      var entry = findEntry(id);
+      if (!entry) return;
+      activeId = id;
+      fillPicker();
+      if (entry.report) {
+        render(entry.report);
+        return;
+      }
+      setBusy(true);
+      statusEl.textContent = "Loading " + entry.name + "...";
+      fetch("/api/report?name=" + encodeURIComponent(entry.name))
+        .then(readJson)
+        .then(function (data) {
+          entry.report = data;
+          if (activeId === id) render(data);
+        })
+        .catch(showFail)
+        .then(function () { setBusy(false); });
+    }
+
+    function parseUpload(file) {
+      return new Promise(function (resolve, reject) {
+        var reader = new FileReader();
+        reader.onload = function () {
+          statusEl.textContent = "Parsing " + file.name + "...";
+          fetch("/api/report", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({name: file.name, text: String(reader.result)})
+          })
+            .then(readJson)
+            .then(function (data) { resolve(rememberUpload(file.name, data)); })
+            .catch(reject);
+        };
+        reader.onerror = function () {
+          reject(new Error("The browser could not read " + file.name + "."));
+        };
+        statusEl.textContent = "Reading " + file.name + "...";
+        reader.readAsText(file);
+      });
+    }
+
+    function addFiles(fileList) {
+      var files = [];
+      for (var i = 0; i < fileList.length; i++) files.push(fileList[i]);
+      fileInput.value = "";
+      if (!files.length || busy) return;
+      setBusy(true);
+      errorEl.hidden = true;
+      var index = 0;
+      var firstId = "";
+      function next() {
+        if (index >= files.length) {
+          setBusy(false);
+          if (firstId) showLog(firstId);
+          return;
+        }
+        var file = files[index];
+        index += 1;
+        parseUpload(file).then(function (id) {
+          if (!firstId) firstId = id;
+          next();
+        }).catch(function (err) {
+          showFail(err);
+          setBusy(false);
+        });
+      }
+      next();
+    }
+
+    function start() {
+      setBusy(true);
+      statusEl.textContent = "Loading logs...";
+      fetch("/api/logs")
+        .then(readJson)
+        .then(function (data) {
+          var logs = data.logs || [];
+          for (var i = 0; i < logs.length; i++) {
+            library.push({id: "f" + (nextId++), name: logs[i].name, source: "folder", report: null});
+          }
+          var startId = "";
+          for (var j = 0; j < library.length; j++) {
+            if (library[j].name === "iptables.log") startId = library[j].id;
+          }
+          if (!startId && library.length) startId = library[0].id;
+          setBusy(false);
+          if (!startId) {
+            fillPicker();
+            statusEl.textContent = "No log is loaded yet. Upload a log to begin.";
+            return;
+          }
+          showLog(startId);
+        })
+        .catch(function (err) {
+          showFail(err);
+          setBusy(false);
+        });
+    }
+
+    uploadButton.addEventListener("click", function () {
+      if (!busy) fileInput.click();
+    });
+    fileInput.addEventListener("change", function () {
+      if (fileInput.files && fileInput.files.length && !busy) addFiles(fileInput.files);
+    });
+    logSelect.addEventListener("change", function () {
+      if (filling || busy) return;
+      if (!logSelect.value || logSelect.value === activeId) return;
+      showLog(logSelect.value);
+    });
+
+    document.addEventListener("dragenter", function (event) {
+      if (!event.dataTransfer) return;
+      dragDepth += 1;
+      document.body.classList.add("dragging");
+    });
+    document.addEventListener("dragover", function (event) {
+      event.preventDefault();
+    });
+    document.addEventListener("dragleave", function () {
+      dragDepth -= 1;
+      if (dragDepth <= 0) {
+        dragDepth = 0;
+        document.body.classList.remove("dragging");
+      }
+    });
+    document.addEventListener("drop", function (event) {
+      event.preventDefault();
+      dragDepth = 0;
+      document.body.classList.remove("dragging");
+      var files = event.dataTransfer && event.dataTransfer.files;
+      if (files && files.length && !busy) addFiles(files);
+    });
+
+    start();
+  </script>
+</body>
+</html>
